@@ -1,6 +1,6 @@
 image:
-  repository: nginx
-  tag: ""
+  repository: ghcr.io/dseif0x/k8s-gpu-autoprovision
+  tag: latest
 
 gpuNodeName: ""
 wakeEndpoint: ""
