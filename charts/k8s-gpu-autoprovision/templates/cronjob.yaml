@@ -23,16 +23,5 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: status.hostIP
-              volumeMounts:
-                - name: kubeconfig
-                  mountPath: /root/.kube/
-          volumes:
-            - name: kubeconfig
-              projected:
-                sources:
-                  - serviceAccountToken:
-                      path: config
-                      expirationSeconds: 3600
-                      audience: api
           serviceAccountName: gpu-node-manager
           restartPolicy: OnFailure
