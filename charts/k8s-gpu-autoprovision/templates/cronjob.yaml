@@ -24,6 +24,6 @@ spec:
                     fieldRef:
                       fieldPath: status.hostIP
                 - name: KUBERNETES_SERVICE_PORT
-                    value: {{ .Values.kubernetesServicePort | default "443" }}
+                  value: {{ .Values.kubernetesServicePort | default "443" }}
           serviceAccountName: gpu-node-manager
           restartPolicy: OnFailure
