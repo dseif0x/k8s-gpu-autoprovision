@@ -30,18 +30,19 @@ users:
     token: $(cat "$TOKEN_PATH")
 EOF
 
-# ----------------------------------------------------------------------
-# 3. Usual logic (unchanged)
-# ----------------------------------------------------------------------
-PENDING_GPU_PODS=$(kubectl get pods -A -o json | \
-  jq '[.items[] | select((.spec.containers[].resources.requests."nvidia.com/gpu"? // 0) > 0
-      and .status.phase=="Pending"
-      and (.status.conditions[]? | select(.type=="PodScheduled" and .status=="False")))] | length')
+PENDING_GPU_PODS=$(kubectl get pods -A -o json | jq '[.items[] |
+  select(
+    (.spec.containers[].resources.requests."nvidia.com/gpu"? // 0) > 0
+    and (.spec.nodeName == null or .spec.nodeName == "")
+  )
+] | length')
 
-ACTIVE_GPU_PODS=$(kubectl get pods -A -o json | \
-  jq '[.items[] | select(.spec.nodeName=="'"$GPU_NODE_NAME"'"
-      and (.spec.containers[].resources.requests."nvidia.com/gpu"? // 0) > 0
-      and .status.phase=="Running")] | length')
+ACTIVE_GPU_PODS=$(kubectl get pods -A -o json | jq '[.items[] |
+  select(
+    (.spec.nodeName == "'$GPU_NODE_NAME'")
+    and (.spec.containers[].resources.requests."nvidia.com/gpu"? // 0) > 0
+  )
+] | length')
 
 if (( PENDING_GPU_PODS > 0 )); then
   echo "⏫ Pending GPU pods detected - waking node"
