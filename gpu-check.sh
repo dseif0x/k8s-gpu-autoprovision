@@ -1,5 +1,4 @@
 #!/bin/bash
-
 set -e
 
 : "${GPU_NODE_NAME:?Environment variable GPU_NODE_NAME is required}"
