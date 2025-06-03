@@ -1,0 +1,7 @@
+image:
+  repository: nginx
+  tag: ""
+
+gpuNodeName: ""
+wakeEndpoint: ""
+shutdownEndpoint: ""
