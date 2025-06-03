@@ -4,7 +4,7 @@ metadata:
   name: gpu-node-manager
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: gpu-node-manager
 rules:
@@ -13,13 +13,13 @@ rules:
     verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: gpu-node-manager
 subjects:
   - kind: ServiceAccount
     name: gpu-node-manager
 roleRef:
-  kind: Role
+  kind: ClusterRole
   name: gpu-node-manager
   apiGroup: rbac.authorization.k8s.io
