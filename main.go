@@ -103,32 +103,42 @@ func safePost(url string) {
 	defer resp.Body.Close()
 	fmt.Printf("✅ POST to %s [%d]\n", url, resp.StatusCode)
 }
-
 func loadNodeGroups() []*NodeGroup {
-	var groups []*NodeGroup
-	for _, env := range os.Environ() {
-		if strings.HasSuffix(env, "_GPU_COUNT") {
-			prefix := strings.TrimSuffix(strings.SplitN(env, "=", 2)[0], "_GPU_COUNT")
-			countStr := os.Getenv(prefix + "_GPU_COUNT")
-			up := os.Getenv(prefix + "_SCALE_UP_ENDPOINT")
-			down := os.Getenv(prefix + "_SCALE_DOWN_ENDPOINT")
-
-			if countStr == "" || up == "" || down == "" {
-				fmt.Println("⚠️ Incomplete config for", prefix)
-				continue
-			}
-			count, err := strconv.Atoi(countStr)
-			if err != nil {
-				fmt.Println("⚠️ Invalid GPU_COUNT for", prefix)
-				continue
-			}
-			groups = append(groups, &NodeGroup{
-				Name:              prefix,
-				GpuCount:          count,
-				ScaleUpEndpoint:   up,
-				ScaleDownEndpoint: down,
-			})
+	groups := []*NodeGroup{}
+	for _, raw := range os.Environ() {
+		parts := strings.SplitN(raw, "=", 2)
+		if len(parts) != 2 {
+			continue
 		}
+		key, _ := parts[0], parts[1]
+
+		if !strings.HasSuffix(key, "_GPU_COUNT") {
+			continue
+		}
+
+		prefix := strings.TrimSuffix(key, "_GPU_COUNT")
+
+		countStr := os.Getenv(prefix + "_GPU_COUNT")
+		up := os.Getenv(prefix + "_SCALE_UP_ENDPOINT")
+		down := os.Getenv(prefix + "_SCALE_DOWN_ENDPOINT")
+
+		if countStr == "" || up == "" || down == "" {
+			fmt.Printf("⚠️ Incomplete config for %s\n", prefix)
+			continue
+		}
+
+		count, err := strconv.Atoi(countStr)
+		if err != nil {
+			fmt.Printf("⚠️ Invalid GPU_COUNT for %s: %v\n", prefix, err)
+			continue
+		}
+
+		groups = append(groups, &NodeGroup{
+			Name:              prefix,
+			GpuCount:          count,
+			ScaleUpEndpoint:   up,
+			ScaleDownEndpoint: down,
+		})
 	}
 	return groups
 }
