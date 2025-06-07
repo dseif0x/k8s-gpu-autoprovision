@@ -7,7 +7,8 @@ on:
     paths:
       - 'Dockerfile'
       - '.github/workflows/docker-ghcr.yaml'
-      - 'gpu-check.sh'
+      - '*.go'
+      - 'go.mod'
 
 jobs:
   docker:
