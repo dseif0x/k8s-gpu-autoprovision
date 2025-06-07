@@ -2,10 +2,6 @@ image:
   repository: ghcr.io/dseif0x/k8s-gpu-autoprovision
   tag: latest
 
-gpuNodeName: ""
-wakeEndpoint: ""
-shutdownEndpoint: ""
-
 nodeGroups:
   - name: foo
     gpuCount: 1
