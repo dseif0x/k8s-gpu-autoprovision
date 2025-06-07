@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-node-manager
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gpu-node-manager
+  template:
+    metadata:
+      labels:
+        app: gpu-node-manager
+    spec:
+      containers:
+        - image: {{ .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}
+          imagePullPolicy: Always
+          name: gpu-node-manager
+          env:
+          {{- range .Values.nodeGroups }}
+            - name: {{ .name | upper }}_GPU_COUNT
+              value: "{{ .gpuCount }}"
+            - name: {{ .name | upper }}_SCALE_UP_ENDPOINT
+              value: "{{ .scaleUpEndpoint }}"
+            - name: {{ .name | upper }}_SCALE_DOWN_ENDPOINT
+              value: "{{ .scaleDownEndpoint }}"
+          {{- end }}
+      serviceAccountName: gpu-node-manager

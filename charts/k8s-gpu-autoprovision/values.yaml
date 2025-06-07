@@ -5,3 +5,9 @@ image:
 gpuNodeName: ""
 wakeEndpoint: ""
 shutdownEndpoint: ""
+
+nodeGroups:
+  - name: foo
+    gpuCount: 1
+    scaleUpEndpoint: http://node-foo/up
+    scaleDownEndpoint: http://node-foo/down
