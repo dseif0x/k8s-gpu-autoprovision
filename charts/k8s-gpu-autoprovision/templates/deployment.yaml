@@ -26,5 +26,7 @@ spec:
               value: "{{ .scaleUpEndpoint }}"
             - name: {{ .name | upper }}_SCALE_DOWN_ENDPOINT
               value: "{{ .scaleDownEndpoint }}"
+            - name: {{ .name | upper }}_NAME
+              value: "{{ .name }}"
           {{- end }}
       serviceAccountName: gpu-node-manager

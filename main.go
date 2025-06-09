@@ -3,94 +3,143 @@ package main
 import (
 	"context"
 	"fmt"
+	v1 "k8s.io/api/core/v1"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"strconv"
 )
 
-type NodeGroup struct {
-	Name              string
-	GpuCount          int
-	ScaleUpEndpoint   string
-	ScaleDownEndpoint string
+type GPUNode struct {
+	Name              string // Node name in the cluster
+	GpuCount          int    // GPUs provided by this ONE node
+	ScaleUpEndpoint   string // Webhook to power the VM on / add to pool
+	ScaleDownEndpoint string // Webhook to power the VM off / remove from pool
 }
 
 func main() {
-	groups := loadNodeGroups()
-	if len(groups) == 0 {
-		panic("❌ No node groups configured")
+	nodes := loadGPUNodes()
+	if len(nodes) == 0 {
+		panic("❌ No nodes configured")
 	}
 
-	config, _ := rest.InClusterConfig()
-	clientset, _ := kubernetes.NewForConfig(config)
+	cfg, _ := rest.InClusterConfig()
+	client, _ := kubernetes.NewForConfig(cfg)
 
-	fmt.Println("🚀 GPU watcher started with", len(groups), "node groups")
-	watcher, err := clientset.CoreV1().Pods("").Watch(context.TODO(), metav1.ListOptions{
-		Watch: true,
-	})
-	if err != nil {
-		panic(err)
-	}
+	fmt.Printf("🚀 GPU watcher started with %d managed node(s)\n", len(nodes))
 
-	for event := range watcher.ResultChan() {
-		pod, ok := event.Object.(*v1.Pod)
-		if !ok || !isGpuPod(pod) {
-			continue
-		}
-
-		for _, group := range groups {
-			go handleScaling(clientset, group)
-		}
+	ticker := time.NewTicker(10 * time.Second)
+	for range ticker.C {
+		handleScaling(client, nodes)
 	}
 }
 
-func handleScaling(clientset *kubernetes.Clientset, group *NodeGroup) {
-	totalGPU, err := countRequestedGPU(clientset)
+func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode) {
+	requested, nodeUsage, pending, err := collectGpuInfo(client)
 	if err != nil {
-		fmt.Println("Error counting GPUs:", err)
+		fmt.Println("❌ Error collecting GPU info:", err)
 		return
 	}
 
-	if totalGPU >= group.GpuCount {
-		fmt.Println("🔼 Requesting scale UP for", group.Name)
-		safePost(group.ScaleUpEndpoint)
-	} else {
-		fmt.Println("🔽 Requesting scale DOWN for", group.Name)
-		safePost(group.ScaleDownEndpoint)
-	}
-}
+	// Build map of currently active nodes (those with any usage)
+	activeNodes := make(map[string]*GPUNode)
+	currentCap := 0
+	used := 0
 
-func countRequestedGPU(clientset *kubernetes.Clientset) (int, error) {
-	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return 0, err
+	for _, n := range nodes {
+		if usage, ok := nodeUsage[n.Name]; ok {
+			activeNodes[n.Name] = n
+			currentCap += n.GpuCount
+			used += usage
+		}
 	}
-	total := 0
-	for _, pod := range pods.Items {
-		for _, c := range pod.Spec.Containers {
-			if val, ok := c.Resources.Requests["nvidia.com/gpu"]; ok {
-				count, _ := val.AsInt64()
-				total += int(count)
+
+	available := currentCap - used
+	fmt.Printf("📊 Requested: %d GPUs | Used: %d | Available: %d | Pending: %d\n", requested, used, available, pending)
+
+	// -------------------- SCALE UP --------------------
+	if pending > available {
+		needed := pending - available
+		fmt.Printf("🔼 Need %d more GPUs to cover pending pods\n", needed)
+
+		// Find inactive nodes and sort by smallest GpuCount first
+		var inactive []*GPUNode
+		for _, n := range nodes {
+			if _, ok := activeNodes[n.Name]; !ok {
+				inactive = append(inactive, n)
+			}
+		}
+		sort.Slice(inactive, func(i, j int) bool {
+			return inactive[i].GpuCount < inactive[j].GpuCount
+		})
+
+		booted := 0
+		for _, n := range inactive {
+			safePost(n.ScaleUpEndpoint)
+			needed -= n.GpuCount
+			booted++
+			if needed <= 0 {
+				break
+			}
+		}
+
+		if needed > 0 {
+			fmt.Printf("⚠️ Still short %d GPUs even after booting %d node(s)\n", needed, booted)
+		}
+
+		return
+	}
+
+	// -------------------- SCALE DOWN --------------------
+	// Only if there is an idle node (usage == 0)
+	var bestIdle *GPUNode
+	for _, n := range nodes {
+		if nodeUsage[n.Name] == 0 {
+			// Pick largest idle node for maximum power saving
+			if bestIdle == nil || n.GpuCount > bestIdle.GpuCount {
+				bestIdle = n
 			}
 		}
 	}
-	return total, nil
+
+	if bestIdle != nil {
+		fmt.Printf("🔽 Powering off idle node %s (%d GPUs)\n", bestIdle.Name, bestIdle.GpuCount)
+		safePost(bestIdle.ScaleDownEndpoint)
+	} else {
+		fmt.Println("✅ Capacity matches demand – no action")
+	}
 }
 
-func isGpuPod(pod *v1.Pod) bool {
-	for _, c := range pod.Spec.Containers {
-		if val, ok := c.Resources.Requests["nvidia.com/gpu"]; ok && !val.IsZero() {
-			return true
+func collectGpuInfo(client *kubernetes.Clientset) (requested int, usage map[string]int, pending int, err error) {
+	usage = map[string]int{}
+	pods, err := client.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return 0, nil, 0, err
+	}
+
+	for _, pod := range pods.Items {
+		for _, c := range pod.Spec.Containers {
+			val, ok := c.Resources.Requests["nvidia.com/gpu"]
+			if !ok || val.IsZero() {
+				continue
+			}
+			cnt, _ := val.AsInt64()
+			requested += int(cnt)
+
+			if pod.Spec.NodeName == "" && pod.Status.Phase == v1.PodPending {
+				pending += int(cnt)
+			} else {
+				usage[pod.Spec.NodeName] += int(cnt)
+			}
 		}
 	}
-	return false
+	return requested, usage, pending, nil
 }
 
 func safePost(url string) {
@@ -103,8 +152,8 @@ func safePost(url string) {
 	defer resp.Body.Close()
 	fmt.Printf("✅ POST to %s [%d]\n", url, resp.StatusCode)
 }
-func loadNodeGroups() []*NodeGroup {
-	groups := []*NodeGroup{}
+func loadGPUNodes() []*GPUNode {
+	var nodes []*GPUNode
 	for _, raw := range os.Environ() {
 		parts := strings.SplitN(raw, "=", 2)
 		if len(parts) != 2 {
@@ -118,11 +167,12 @@ func loadNodeGroups() []*NodeGroup {
 
 		prefix := strings.TrimSuffix(key, "_GPU_COUNT")
 
+		name := os.Getenv(prefix + "_NAME")
 		countStr := os.Getenv(prefix + "_GPU_COUNT")
 		up := os.Getenv(prefix + "_SCALE_UP_ENDPOINT")
 		down := os.Getenv(prefix + "_SCALE_DOWN_ENDPOINT")
 
-		if countStr == "" || up == "" || down == "" {
+		if countStr == "" || up == "" || down == "" || name == "" {
 			fmt.Printf("⚠️ Incomplete config for %s\n", prefix)
 			continue
 		}
@@ -133,12 +183,12 @@ func loadNodeGroups() []*NodeGroup {
 			continue
 		}
 
-		groups = append(groups, &NodeGroup{
-			Name:              prefix,
+		nodes = append(nodes, &GPUNode{
+			Name:              name,
 			GpuCount:          count,
 			ScaleUpEndpoint:   up,
 			ScaleDownEndpoint: down,
 		})
 	}
-	return groups
+	return nodes
 }
