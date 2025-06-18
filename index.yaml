@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  k8s-gpu-autoprovision:
+  - apiVersion: v2
+    appVersion: 1.16.0
+    created: "2025-06-18T07:21:56.769687263Z"
+    description: A Helm chart for Kubernetes
+    digest: 271eaf9d91d17bcee5b5d0ce519c731d0482b1abc5e3e1873062b8706ad843b3
+    name: k8s-gpu-autoprovision
+    type: application
+    urls:
+    - https://github.com/dseif0x/k8s-gpu-autoprovision/releases/download/k8s-gpu-autoprovision-0.1.0/k8s-gpu-autoprovision-0.1.0.tgz
+    version: 0.1.0
+generated: "2025-06-18T07:21:56.769736335Z"
