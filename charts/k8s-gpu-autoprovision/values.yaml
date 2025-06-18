@@ -3,7 +3,7 @@ image:
   tag: latest
 
 nodeGroups:
-  - name: foo
+  - name: foo1
     gpuCount: 1
     scaleUpEndpoint: http://node-foo/up
     scaleDownEndpoint: http://node-foo/down
