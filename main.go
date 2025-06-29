@@ -100,7 +100,7 @@ func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode) {
 	// Only if there is an idle node (usage == 0) that is actually active
 	var bestIdle *GPUNode
 	for _, n := range nodes {
-		if usage, exists := nodeUsage[n.Name]; exists && usage == 0 {
+		if usage, exists := nodeUsage[n.Name]; (exists && usage == 0) || !exists {
 			// Pick largest idle node for maximum power saving
 			if bestIdle == nil || n.GpuCount > bestIdle.GpuCount {
 				bestIdle = n
