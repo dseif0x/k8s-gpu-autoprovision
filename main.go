@@ -97,10 +97,10 @@ func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode) {
 	}
 
 	// -------------------- SCALE DOWN --------------------
-	// Only if there is an idle node (usage == 0)
+	// Only if there is an idle node (usage == 0) that is actually active
 	var bestIdle *GPUNode
 	for _, n := range nodes {
-		if nodeUsage[n.Name] == 0 {
+		if usage, exists := nodeUsage[n.Name]; exists && usage == 0 {
 			// Pick largest idle node for maximum power saving
 			if bestIdle == nil || n.GpuCount > bestIdle.GpuCount {
 				bestIdle = n
@@ -134,7 +134,7 @@ func collectGpuInfo(client *kubernetes.Clientset) (requested int, usage map[stri
 
 			if pod.Spec.NodeName == "" && pod.Status.Phase == v1.PodPending {
 				pending += int(cnt)
-			} else {
+			} else if pod.Status.Phase == v1.PodRunning {
 				usage[pod.Spec.NodeName] += int(cnt)
 			}
 		}
