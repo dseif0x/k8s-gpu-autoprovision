@@ -53,10 +53,10 @@ func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode) {
 	used := 0
 
 	for _, n := range nodes {
+		activeNodes[n.Name] = n
+		currentCap += n.GpuCount
 		if usage, ok := nodeUsage[n.Name]; ok {
-			activeNodes[n.Name] = n
-			currentCap += n.GpuCount
-			used += usage
+			used = usage
 		}
 	}
 
