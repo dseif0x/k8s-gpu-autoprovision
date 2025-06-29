@@ -43,7 +43,7 @@ GPU_NODE_2_SCALE_DOWN_ENDPOINT=http://power-api/gpu-worker-2/stop
 
 ### Using Helm
 
-1Configure your node groups in a new file `values.yaml`:
+1. Configure your node groups in a new file `values.yaml`:
 
 ```yaml
 nodeGroups:
@@ -57,7 +57,7 @@ nodeGroups:
     scaleDownEndpoint: http://power-api/gpu-worker-2/stop
 ```
 
-2Deploy with Helm:
+2. Deploy with Helm:
 
 ```bash
 helm repo add k8s-gpu-autoprovision https://dseif0x.github.io/k8s-gpu-autoprovision/
