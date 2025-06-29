@@ -132,7 +132,7 @@ func collectGpuInfo(client *kubernetes.Clientset) (requested int, usage map[stri
 			cnt, _ := val.AsInt64()
 			requested += int(cnt)
 
-			if pod.Spec.NodeName == "" && pod.Status.Phase == v1.PodPending {
+			if pod.Status.Phase == v1.PodPending {
 				pending += int(cnt)
 			} else if pod.Status.Phase == v1.PodRunning {
 				usage[pod.Spec.NodeName] += int(cnt)
