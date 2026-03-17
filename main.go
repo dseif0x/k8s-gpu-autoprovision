@@ -3,17 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
-	v1 "k8s.io/api/core/v1"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+
+	"strconv"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"strconv"
 )
 
 type GPUNode struct {
@@ -34,7 +36,7 @@ func main() {
 
 	fmt.Printf("🚀 GPU watcher started with %d managed node(s)\n", len(nodes))
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Minute)
 	for range ticker.C {
 		handleScaling(client, nodes)
 	}
