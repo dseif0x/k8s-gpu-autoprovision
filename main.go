@@ -36,7 +36,7 @@ func main() {
 
 	fmt.Printf("🚀 GPU watcher started with %d managed node(s)\n", len(nodes))
 
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
 	for range ticker.C {
 		handleScaling(client, nodes)
 	}
