@@ -36,13 +36,14 @@ func main() {
 
 	fmt.Printf("🚀 GPU watcher started with %d managed node(s)\n", len(nodes))
 
+	idleSince := make(map[string]time.Time)
 	ticker := time.NewTicker(10 * time.Second)
 	for range ticker.C {
-		handleScaling(client, nodes)
+		handleScaling(client, nodes, idleSince)
 	}
 }
 
-func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode) {
+func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode, idleSince map[string]time.Time) {
 	requested, nodeUsage, pending, err := collectGpuInfo(client)
 	if err != nil {
 		fmt.Println("❌ Error collecting GPU info:", err)
@@ -100,18 +101,31 @@ func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode) {
 
 	// -------------------- SCALE DOWN --------------------
 	// Only if there is an idle node (usage == 0) that is actually active
+	const scaleDownDelay = 5 * time.Minute
+	now := time.Now()
+
+	// Track which nodes are currently idle; clear entries for nodes that are no longer idle
 	var bestIdle *GPUNode
 	for _, n := range nodes {
 		if usage, exists := nodeUsage[n.Name]; (exists && usage == 0) || !exists {
-			// Pick largest idle node for maximum power saving
-			if bestIdle == nil || n.GpuCount > bestIdle.GpuCount {
-				bestIdle = n
+			if _, seen := idleSince[n.Name]; !seen {
+				idleSince[n.Name] = now
+				fmt.Printf("⏳ Node %s is idle, will scale down in %.0f minutes if still idle\n", n.Name, scaleDownDelay.Minutes())
 			}
+			if now.Sub(idleSince[n.Name]) >= scaleDownDelay {
+				// Pick largest idle node for maximum power saving
+				if bestIdle == nil || n.GpuCount > bestIdle.GpuCount {
+					bestIdle = n
+				}
+			}
+		} else {
+			delete(idleSince, n.Name)
 		}
 	}
 
 	if bestIdle != nil {
 		fmt.Printf("🔽 Powering off idle node %s (%d GPUs)\n", bestIdle.Name, bestIdle.GpuCount)
+		delete(idleSince, bestIdle.Name)
 		safePost(bestIdle.ScaleDownEndpoint)
 	} else {
 		fmt.Println("✅ Capacity matches demand – no action")
