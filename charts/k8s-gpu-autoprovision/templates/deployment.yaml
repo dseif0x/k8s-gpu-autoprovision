@@ -14,10 +14,21 @@ spec:
       labels:
         app: gpu-node-manager
     spec:
+      # Stateless Go binary: run unprivileged (Pod Security `restricted`).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - image: {{ .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
           name: gpu-node-manager
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
           {{- range .Values.nodeGroups }}
             - name: {{ .name | upper }}_GPU_COUNT
