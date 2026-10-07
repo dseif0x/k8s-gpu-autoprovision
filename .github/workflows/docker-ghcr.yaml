@@ -42,6 +42,11 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           flavor: |
             latest=true
+          # Branch tag (main) plus an immutable sha-<short> tag per build, so
+          # deployments can pin a specific build.
+          tags: |
+            type=ref,event=branch
+            type=sha
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
