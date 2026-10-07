@@ -1,6 +1,9 @@
 image:
   repository: ghcr.io/dseif0x/k8s-gpu-autoprovision
+  # Pin a build for reproducible deploys, e.g. "sha-1234567" or
+  # "latest@sha256:<digest>".
   tag: latest
+  pullPolicy: IfNotPresent
 
 nodeGroups:
   - name: foo1
