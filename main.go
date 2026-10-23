@@ -127,6 +127,14 @@ func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode, idleSince map
 
 	// -------------------- SCALE UP --------------------
 	if pending > available {
+		// While pods wait for GPUs no node is idle. Without this reset a
+		// timer started before the demand survives it, and a node woken for
+		// a pod that is then deleted is powered off at once instead of after
+		// scaleDownDelay.
+		for name := range idleSince {
+			delete(idleSince, name)
+		}
+
 		needed := pending - available
 		fmt.Printf("🔼 Need %d more GPUs to cover pending pods\n", needed)
 
