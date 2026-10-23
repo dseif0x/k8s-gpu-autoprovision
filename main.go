@@ -14,6 +14,7 @@ import (
 	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -36,11 +37,69 @@ func main() {
 
 	fmt.Printf("🚀 GPU watcher started with %d managed node(s)\n", len(nodes))
 
+	// A pod watch triggers a pass as soon as a GPU pod is pending, so a node
+	// is woken within a fraction of a second instead of on the next tick.
+	// The ticker still drives scale-down timing and covers watch outages.
+	trigger := make(chan struct{}, 1)
+	go watchGpuPods(client, trigger)
+
 	idleSince := make(map[string]time.Time)
 	ticker := time.NewTicker(10 * time.Second)
-	for range ticker.C {
+	for {
+		select {
+		case <-ticker.C:
+		case <-trigger:
+			// Let a burst of pod events settle into one pass.
+			time.Sleep(250 * time.Millisecond)
+			select {
+			case <-trigger:
+			default:
+			}
+		}
 		handleScaling(client, nodes, idleSince)
 	}
+}
+
+// watchGpuPods signals trigger whenever a pod that requests GPUs is pending.
+// It re-establishes the watch whenever the API server closes it.
+func watchGpuPods(client *kubernetes.Clientset, trigger chan<- struct{}) {
+	for {
+		w, err := client.CoreV1().Pods("").Watch(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			fmt.Println("❌ Pod watch failed, retrying:", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		for ev := range w.ResultChan() {
+			if ev.Type != watch.Added && ev.Type != watch.Modified {
+				continue
+			}
+			pod, ok := ev.Object.(*v1.Pod)
+			if !ok || pod.Status.Phase != v1.PodPending || gpuRequest(pod) == 0 {
+				continue
+			}
+			select {
+			case trigger <- struct{}{}:
+			default: // a pass is already queued
+			}
+		}
+		w.Stop()
+		time.Sleep(time.Second)
+	}
+}
+
+// gpuRequest returns the number of GPUs a pod's containers request.
+func gpuRequest(pod *v1.Pod) int {
+	n := 0
+	for _, c := range pod.Spec.Containers {
+		val, ok := c.Resources.Requests["nvidia.com/gpu"]
+		if !ok || val.IsZero() {
+			continue
+		}
+		cnt, _ := val.AsInt64()
+		n += int(cnt)
+	}
+	return n
 }
 
 func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode, idleSince map[string]time.Time) {
@@ -139,20 +198,18 @@ func collectGpuInfo(client *kubernetes.Clientset) (requested int, usage map[stri
 		return 0, nil, 0, err
 	}
 
-	for _, pod := range pods.Items {
-		for _, c := range pod.Spec.Containers {
-			val, ok := c.Resources.Requests["nvidia.com/gpu"]
-			if !ok || val.IsZero() {
-				continue
-			}
-			cnt, _ := val.AsInt64()
-			requested += int(cnt)
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		cnt := gpuRequest(pod)
+		if cnt == 0 {
+			continue
+		}
+		requested += cnt
 
-			if pod.Status.Phase == v1.PodPending {
-				pending += int(cnt)
-			} else if pod.Status.Phase == v1.PodRunning {
-				usage[pod.Spec.NodeName] += int(cnt)
-			}
+		if pod.Status.Phase == v1.PodPending {
+			pending += cnt
+		} else if pod.Status.Phase == v1.PodRunning {
+			usage[pod.Spec.NodeName] += cnt
 		}
 	}
 	return requested, usage, pending, nil
