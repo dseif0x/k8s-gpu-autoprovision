@@ -30,6 +30,12 @@ spec:
             capabilities:
               drop: ["ALL"]
           env:
+          {{- if .Values.scaleDownDelay }}
+            # Global idle time before a node is powered off (Go duration, e.g.
+            # "2m"). Per-node scaleDownDelay below overrides this.
+            - name: SCALE_DOWN_DELAY
+              value: "{{ .Values.scaleDownDelay }}"
+          {{- end }}
           {{- range .Values.nodeGroups }}
             - name: {{ .name | upper }}_GPU_COUNT
               value: "{{ .gpuCount }}"
@@ -39,5 +45,9 @@ spec:
               value: "{{ .scaleDownEndpoint }}"
             - name: {{ .name | upper }}_NAME
               value: "{{ .name }}"
+          {{- if .scaleDownDelay }}
+            - name: {{ .name | upper }}_SCALE_DOWN_DELAY
+              value: "{{ .scaleDownDelay }}"
+          {{- end }}
           {{- end }}
       serviceAccountName: gpu-node-manager
