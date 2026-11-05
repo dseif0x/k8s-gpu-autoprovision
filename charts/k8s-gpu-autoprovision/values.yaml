@@ -5,8 +5,15 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
+# How long a node must stay idle before it is powered off, as a Go duration
+# (e.g. "5m", "120s"). Defaults to 5m in the controller when unset. Can be
+# overridden per node group below.
+scaleDownDelay: ""
+
 nodeGroups:
   - name: foo1
     gpuCount: 1
     scaleUpEndpoint: http://node-foo/up
     scaleDownEndpoint: http://node-foo/down
+    # Optional per-node override of the idle-before-power-off delay.
+    # scaleDownDelay: 2m

@@ -20,11 +20,17 @@ import (
 )
 
 type GPUNode struct {
-	Name              string // Node name in the cluster
-	GpuCount          int    // GPUs provided by this ONE node
-	ScaleUpEndpoint   string // Webhook to power the VM on / add to pool
-	ScaleDownEndpoint string // Webhook to power the VM off / remove from pool
+	Name              string        // Node name in the cluster
+	GpuCount          int           // GPUs provided by this ONE node
+	ScaleUpEndpoint   string        // Webhook to power the VM on / add to pool
+	ScaleDownEndpoint string        // Webhook to power the VM off / remove from pool
+	ScaleDownDelay    time.Duration // How long the node must stay idle before power-off
 }
+
+// defaultScaleDownDelay is how long a node must stay idle before it is powered
+// off, unless overridden by SCALE_DOWN_DELAY (global) or <NAME>_SCALE_DOWN_DELAY
+// (per node).
+const defaultScaleDownDelay = 5 * time.Minute
 
 func main() {
 	nodes := loadGPUNodes()
@@ -168,7 +174,6 @@ func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode, idleSince map
 
 	// -------------------- SCALE DOWN --------------------
 	// Only if there is an idle node (usage == 0) that is actually active
-	const scaleDownDelay = 5 * time.Minute
 	now := time.Now()
 
 	// Track which nodes are currently idle; clear entries for nodes that are no longer idle
@@ -177,9 +182,9 @@ func handleScaling(client *kubernetes.Clientset, nodes []*GPUNode, idleSince map
 		if usage, exists := nodeUsage[n.Name]; (exists && usage == 0) || !exists {
 			if _, seen := idleSince[n.Name]; !seen {
 				idleSince[n.Name] = now
-				fmt.Printf("⏳ Node %s is idle, will scale down in %.0f minutes if still idle\n", n.Name, scaleDownDelay.Minutes())
+				fmt.Printf("⏳ Node %s is idle, will scale down in %s if still idle\n", n.Name, n.ScaleDownDelay)
 			}
-			if now.Sub(idleSince[n.Name]) >= scaleDownDelay {
+			if now.Sub(idleSince[n.Name]) >= n.ScaleDownDelay {
 				// Pick largest idle node for maximum power saving
 				if bestIdle == nil || n.GpuCount > bestIdle.GpuCount {
 					bestIdle = n
@@ -233,8 +238,26 @@ func safePost(url string) {
 	defer resp.Body.Close()
 	fmt.Printf("✅ POST to %s [%d]\n", url, resp.StatusCode)
 }
+
+// parseDelay reads a Go duration string (e.g. "2m", "120s"), falling back to
+// def when it is empty or invalid.
+func parseDelay(s string, def time.Duration) time.Duration {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d < 0 {
+		fmt.Printf("⚠️ Invalid scale-down delay %q, using %s: %v\n", s, def, err)
+		return def
+	}
+	return d
+}
+
 func loadGPUNodes() []*GPUNode {
 	var nodes []*GPUNode
+	// A global default, overridable per node by <NAME>_SCALE_DOWN_DELAY.
+	globalDelay := parseDelay(os.Getenv("SCALE_DOWN_DELAY"), defaultScaleDownDelay)
 	for _, raw := range os.Environ() {
 		parts := strings.SplitN(raw, "=", 2)
 		if len(parts) != 2 {
@@ -269,6 +292,7 @@ func loadGPUNodes() []*GPUNode {
 			GpuCount:          count,
 			ScaleUpEndpoint:   up,
 			ScaleDownEndpoint: down,
+			ScaleDownDelay:    parseDelay(os.Getenv(prefix+"_SCALE_DOWN_DELAY"), globalDelay),
 		})
 	}
 	return nodes
